@@ -1,10 +1,12 @@
 import discord
 import asyncio
 import os
+import requests
 from asyncio import sleep
 from discord.ext import commands
 from youtube_dl import YoutubeDL
 from discord import FFmpegPCMAudio
+from googletrans import Translator
 
 from dotenv import load_dotenv
 
@@ -28,7 +30,7 @@ load_dotenv()
 
 # Инициализация бота
 bot = commands.Bot(command_prefix='$',
-                   intents=discord.Intents.all(), case_insensitive=True)
+                intents=discord.Intents.all(), case_insensitive=True)
 # Удаление базовой команды help
 bot.remove_command('help')
 
@@ -41,10 +43,18 @@ async def on_ready():
 
     await bot.change_presence(status=discord.Status.online, activity=discord.Game('Пытается превзойти создателя'))
 
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send('Такой команды не существует.')
+    else:
+        # Другие обработчики ошибок, если необходимо
+        print(f'Произошла ошибка: {error}')
+
 # Реализация команды $clear
 
 
-@bot.command()
+@bot.command(name='clear', help='Очистить чат.')
 async def clear(ctx, count: int):
     # Удаляет сообщения количество указывается в limit
     await ctx.channel.purge(limit=count+1)
@@ -53,7 +63,7 @@ async def clear(ctx, count: int):
 # Реализация команды $ban
 
 
-@bot.command()
+@bot.command(name='ban', help='Забанить пользователяю.')
 async def ban(ctx, member: discord.Member = None, time=None, reason: str = None):
     async def un_ban(member):
         async for ban_user in ctx.guild.bans():
@@ -105,7 +115,7 @@ async def ban(ctx, member: discord.Member = None, time=None, reason: str = None)
 # Реализация команды $unban
 
 
-@bot.command()
+@bot.command(name='unban', help='Разбанить пользователяю.')
 async def unban(ctx, id_: int = None):
     if id_:
         async for ban_user in ctx.guild.bans():
@@ -120,112 +130,100 @@ async def unban(ctx, id_: int = None):
 # Реализация команды $play включение музыки в боте
 
 
-@bot.command()
+@bot.command(name='play', help='Воспроизвести музыку. Пример: `$play название_трека_или_ссылка`')
 async def play(ctx, *args):
-
-    # Глобальные переменные для управления музыкой
     global vc, path
 
     url = ' '.join(args)
+    list_music = ''
+
+    # Проверяем, находится ли автор сообщения в голосовом канале
 
     try:
-        voice_channel = ctx.message.author.voice.channel
-        vc = await voice_channel.connect()
-        path = []
-    except:
-        pass
+        try:
+            voice_channel = ctx.message.author.voice.channel
+            vc = await voice_channel.connect()
+            path = []
+        except:
+            pass
 
-    if vc.is_playing():
-        path.append(url)
-        list_music = ''
-        for i in path:
-            list_music += f'\n{i}'
-        # Создаем вложенный объект discord.Embed с информацией о заказанных треках
-        embed = discord.Embed(
-            title='Плейлист', description=f'{ctx.message.author.mention}, я добавил в плейлист.\n\n**Текущий плейлист:**\n{list_music}', color=0x00ff00
-        )
+        if vc.is_playing():
+            # Добавляем трек в плейлист
+            with YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(
+                    f'ytsearch:{url}', download=False)['entries'][0]
+                link = info['formats'][0]['url']
 
-        # Отправляем сообщение с использованием embed
-        await ctx.send(embed=embed)
+                title = info['title']
+                music_url = info['webpage_url']
+                path.append(title)
+                print(path)
 
-    else:
-        with YoutubeDL(YDL_OPTIONS) as ydl:
-            if 'https://' in url:
-                info = ydl.extract_info(url, download=False)
-            else:
-                info = ydl.extract_info(f'ytsearch:{url}', download=False)[
-                    'entries'][0]
+            # Отправляем сообщение о добавлении в плейлист
+            await ctx.send(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({music_url})'))
 
-            link = info['formats'][0]['url']
-            # Создаем вложенный объект discord.Embed с информацией о заказанном треке
-            embed = discord.Embed(
-                description=f"{ctx.message.author.mention} запросил **{info['title']}**\n[Ссылка на трек]({info['webpage_url']}).",
-                color=discord.Color.blue()
-            )
-            await ctx.send(embed=embed)
+        elif not vc.is_paused():
+            # Получаем информацию о треке
+            with YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(
+                    f'ytsearch:{url}', download=False)['entries'][0]
+                link = info['formats'][0]['url']
 
-            vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
-                    source=link, **FFMPEG_OPTIONS))
+                # Формируем информацию о текущем треке и плейлисте
+                for i in path:
+                    list_music += f'\n- {i}'
 
-            while vc.is_playing():
-                await sleep(10)
-            if not vc.is_paused():
-                ctx.voice_client.stop()
-                if len(path) == 0:
-                    # Сообщение о завершении треков
-                    await ctx.send(embed=discord.Embed(description="Треки закончились. Спасибо за прослушивание!"))
+                if list_music == '':
+                    embed = discord.Embed(
+                        description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
+                        color=0x00ff00)
+
+                    await ctx.send(embed=embed)
                 else:
-                    music = path.pop(0)
-                    list_music = ''
-                    for i in path:
-                        list_music += f'\n-{i}'
-                    # Создаем вложенный объект discord.Embed с информацией о заказанных треках
                     embed = discord.Embed(
                         title='Плейлист',
-                        description=f'{ctx.message.author.mention}, Я пропустил трек.\n\n**Текущий плейлист:**\n{list_music}',
-                        # Зеленый цвет (можно изменить на другой по желанию)
+                        description=f"{ctx.author.mention}, сейчас будет играть [{info['title']}]({info['webpage_url']}).\n\n**Текущий плейлист:**\n{list_music}",
                         color=0x00ff00)
-                    
+
                     await ctx.send(embed=embed)
-                    await play(ctx, music)
+
+                # Воспроизводим трек
+                vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
+                        source=link, **FFMPEG_OPTIONS))
+
+                # Ждем, пока текущий трек воспроизводится
+                while vc.is_playing():
+                    await asyncio.sleep(1)
+
+                try:
+                    await play(ctx, path.pop(0))
+                except:
+                    await ctx.send(embed=discord.Embed(
+                        title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
+
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+        await ctx.send("Произошла ошибка при попытке воспроизведения трека.")
+
 
 # Реализация команды $stop остановки плейлиста
 
-
-@bot.command()
+@bot.command(name='stop', help='Выключить воспроизведение.')
 async def stop(ctx):
     ctx.voice_client.stop()
-    path = []
-    # Сообщение о завершении треков
-    await ctx.send(embed=discord.Embed(description="Я очистил плейлист. Спасибо за прослушивание!"))
+    path.clear()
 
 # Реализация команды $skip пропуска треков
 
 
-@bot.command()
+@bot.command(name='skip', help='Пропустить текущий трек.')
 async def skip(ctx):
     ctx.voice_client.stop()
-    if len(path) == 0:
-        # Сообщение о завершении треков
-        await ctx.send(embed=discord.Embed(description="Треки закончились. Спасибо за прослушивание!"))
-    else:
-        music = path.pop(0)
-        list_music = ''
-        for i in path:
-            list_music += f'\n{i}'
-        # Создаем вложенный объект discord.Embed с информацией о заказанных треках
-        embed = discord.Embed(
-            title='Плейлист',
-            description=f'{ctx.message.author.mention}, я пропустил трек.\n\n**Текущий плейлист:**\n{list_music}',
-            color=0x00ff00)
-        
-        await ctx.send(embed=embed)
-        await play(ctx, music)
 
 # Реализация команды $help
 
+@bot.command(name='help', help='Узнать команды бота')
 
-@bot.command()
 async def help(ctx):
     embed = discord.Embed(
         title='Команды бота',
@@ -246,13 +244,17 @@ async def help(ctx):
     embed.add_field(
         name='$clear', value='Отчистить чат указанное количество сообщений. Пример: `$clear 100`', inline=False)
     embed.add_field(
+        name='$joke', value='Получить случайный анекдот. Пример: `$joke`', inline=False)
+    embed.add_field(
+        name='$anime_img', value='Получить случайное аниме изображение. Пример: `$anime_img` \n\n`type`(sfw/nsfw) \n\n`category-sfw` (waifu/neko/shinobu/megumin/bully/cuddle/cry/hug/awoo/kiss/\nlick/pat/smug/bonk/yeet/blush/smile/wave/highfive/handhold/nom/bite/glomp\n/slap/kill/kick/happy/wink/poke/dance/cringe) \n\n`category-nsfw` (waifu/neko/trap/blowjob)', inline=False)
+    embed.add_field(
         name='$about', value='Информация о боте и его разработчике. Пример: `$about`', inline=False)
 
     await ctx.send(embed=embed)
 
 
 # Реализация команды $about
-@bot.command()
+@bot.command(name='about', help='Информация о боте и его разработчике. Пример: `$about`')
 async def about(ctx):
     embed = discord.Embed(
         title='О боте',
@@ -268,6 +270,34 @@ async def about(ctx):
                     value='[Kinoki445](https://kinoki.vercel.app/)', inline=False)
 
     await ctx.send(embed=embed)
+
+
+@bot.command(name='joke', help='Получить случайный анекдот.')
+async def joke(ctx):
+    url = "https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw,religious,political,racist,sexist,explicit&type=single"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        tr = Translator()
+        a = tr.translate(data['joke'], dest='ru')
+        await ctx.send(embed=discord.Embed(description=f"{a.text}"))
+
+
+@bot.command(name='anime_img', help='Получить случайное аниме изображение. Пример: `$anime_img')
+async def anime_img(ctx, *args):
+    try:
+        response = requests.get(f"https://api.waifu.pics/{args[0]}/{args[1]}")
+    except:
+        response = requests.get("https://api.waifu.pics/sfw/smile")
+
+    if response.status_code == 200:
+        data = response.json()
+        image_url = data["url"]
+        await ctx.send(image_url)
+    else:
+        await ctx.send(embed=discord.Embed(description=f"Error {response.status_code}: Не удалось получить изображение."))
+        return None
+
 
 try:
     bot.run(os.getenv('TOKEN'))
