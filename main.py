@@ -52,6 +52,7 @@ async def skip_callback(interaction):
         voice_client = interaction.guild.voice_client
         if voice_client and voice_client.is_playing():
             voice_client.stop()
+            await interaction.response.send_message(embed=discord.Embed(description=f'Я пропустил трек.'))
             return
         else:
             await interaction.response.send_message("Нет активного воспроизведения.", ephemeral=True)
@@ -64,6 +65,7 @@ async def stop_callback(interaction):
         if voice_client:
             voice_client.stop()
             path.clear()
+            await interaction.response.send_message(embed=discord.Embed(description=f'Я удалил плейлист.'))
             return
         else:
             await interaction.response.send_message("Нет активного воспроизведения.", ephemeral=True)
