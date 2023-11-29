@@ -1,10 +1,14 @@
-import discord, random, asyncio, os, requests
+import discord
+import random
+import asyncio
+import os
+import requests
 from asyncio import sleep
 from discord.ext import commands
 from youtube_dl import YoutubeDL
 from discord import FFmpegPCMAudio
 from googletrans import Translator
-from bs4 import BeautifulSoup 
+from bs4 import BeautifulSoup
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -34,11 +38,13 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
 
 # Инициализация бота
 bot = commands.Bot(command_prefix='$',
-                intents=discord.Intents.all(), case_insensitive=True)
+                   intents=discord.Intents.all(), case_insensitive=True)
 # Удаление базовой команды help
 bot.remove_command('help')
 
-#Class Callback button
+# Class Callback button
+
+
 class MyButton(discord.ui.Button):
     def __init__(self, label, custom_id, callback_function):
         super().__init__(label=label, custom_id=custom_id)
@@ -46,6 +52,7 @@ class MyButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await self.callback_function(interaction)
+
 
 async def skip_callback(interaction):
     try:
@@ -58,6 +65,7 @@ async def skip_callback(interaction):
             await interaction.response.send_message("Нет активного воспроизведения.", ephemeral=True)
     except discord.errors.HTTPException:
         pass
+
 
 async def stop_callback(interaction):
     try:
@@ -72,15 +80,17 @@ async def stop_callback(interaction):
     except discord.errors.HTTPException:
         pass
 
+
 async def random_callback(interaction):
     try:
         # Перемешиваем список
         random.shuffle(path)
         await interaction.response.send_message(embed=discord.Embed(
-                    title='Рандом', description=f'Треки перемешаны'))
+            title='Рандом', description=f'Треки перемешаны'))
         return
     except discord.errors.HTTPException:
         pass
+
 
 @bot.event
 async def on_button_click(interaction):
@@ -93,10 +103,12 @@ async def on_button_click(interaction):
 
 # Сообщение что бот запустился
 
+
 @bot.event
 async def on_ready():
     print(f'Logged on as {bot.user}!')
     await bot.change_presence(status=discord.Status.online, activity=discord.Game('Пытается превзойти создателя'))
+
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -107,6 +119,7 @@ async def on_command_error(ctx, error):
         print(f'Произошла ошибка: {error}')
 
 # Реализация команды $clear
+
 
 @bot.command(name='clear', help='Очистить чат.')
 async def clear(ctx, count: int):
@@ -163,7 +176,7 @@ async def ban(ctx, member: discord.Member = None, time=None, reason: str = None)
     # Если не указан пользователь
     else:
         embed = discord.Embed(title='Введите имя пользователя:',
-                            description='Пример: @kinoki.', color=discord.Color.red())
+                              description='Пример: @kinoki.', color=discord.Color.red())
         await ctx.send(embed=embed)
 
 # Реализация команды $unban
@@ -178,7 +191,7 @@ async def unban(ctx, id_: int = None):
                 await ctx.send(f'Пользователь @{ban_user.user.name} разбанен')
     else:
         embed = discord.Embed(title='Введите id пользователя:',
-                            description='Пример: 225635556594417665.', color=discord.Color.red())
+                              description='Пример: 225635556594417665.', color=discord.Color.red())
         await ctx.send(embed=embed)
 
 # Реализация команды $play включение музыки в боте
@@ -195,22 +208,26 @@ async def play(ctx, *args):
     view = discord.ui.View()
 
     # Кнопка "random" с соответствующим callback
-    random_button = MyButton(label='Перемешать плейлист', custom_id='random_button', callback_function=lambda i: random_callback(i))
+    random_button = MyButton(label='Перемешать плейлист', custom_id='random_button',
+                             callback_function=lambda i: random_callback(i))
     view.add_item(random_button)
 
     # Кнопка "skip" с соответствующим callback
-    skip_button = MyButton(label='Пропустить', custom_id='skip_button', callback_function=lambda i: skip_callback(i))
+    skip_button = MyButton(label='Пропустить', custom_id='skip_button',
+                           callback_function=lambda i: skip_callback(i))
     view.add_item(skip_button)
 
     # Кнопка "stop" с соответствующим callback
-    stop_button = MyButton(label='Остановить', custom_id='stop_button', callback_function=lambda i: stop_callback(i))
+    stop_button = MyButton(label='Остановить', custom_id='stop_button',
+                           callback_function=lambda i: stop_callback(i))
     view.add_item(stop_button)
 
     # Функция парсинга треков с разных источников
     async def create_playlist(url, ctx):
-        #Если Вк делает из него плейлист
+        # Если Вк делает из него плейлист
         if 'https://vk.com/music/' in url:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0'}
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0'}
             # Отправляем GET-запрос к указанному URL
             response = requests.get(url, headers=headers)
 
@@ -219,22 +236,26 @@ async def play(ctx, *args):
                 soup = BeautifulSoup(response.text, 'html.parser')
 
                 # Найдите все элементы плейлиста
-                listen = soup.find_all("div", class_="audio_row__performer_title")
-                playlist_element = soup.find('h1', class_='AudioPlaylistSnippet__title--main')
+                listen = soup.find_all(
+                    "div", class_="audio_row__performer_title")
+                playlist_element = soup.find(
+                    'h1', class_='AudioPlaylistSnippet__title--main')
 
                 await ctx.send(embed=discord.Embed(description=f'Начинаю парсить плейлист'))
 
                 # Ищет все треки в плейлисте
                 for item in listen:
-                    title_element = item.find("a", class_="audio_row__title_inner _audio_row__title_inner")
-                    artist_element = item.find("div", class_="audio_row__performers")
+                    title_element = item.find(
+                        "a", class_="audio_row__title_inner _audio_row__title_inner")
+                    artist_element = item.find(
+                        "div", class_="audio_row__performers")
 
                     if title_element and artist_element:
                         title = title_element.getText()
                         artist = artist_element.getText()
                         path.append(f"{artist} - {title}")
-            
-                return(playlist_element.getText(),url)
+
+                return (playlist_element.getText(), url)
 
             else:
                 print('Ошибка в подключение к ВК')
@@ -248,23 +269,25 @@ async def play(ctx, *args):
                 song = track['track']['name']
                 artist = track['track']['artists'][0]['name']
                 path.append(f'{artist} - {song}')
-            return(song, artist)
+            return (song, artist)
 
         else:
             with YoutubeDL(YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
+                info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(
+                    f'ytsearch:{url}', download=False)['entries'][0]
                 link = info['formats'][0]['url']
 
                 title = info['title']
                 music_url = info['webpage_url']
                 path.append(music_url)
                 return (title, music_url)
-            
 
     # Функция воспроизведения треков
+
     async def play_music(url, vc, ctx):
         with YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
+            info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(
+                f'ytsearch:{url}', download=False)['entries'][0]
             link = info['formats'][0]['url']
 
         if len(path) == 0:
@@ -278,7 +301,7 @@ async def play(ctx, *args):
             embed = discord.Embed(
                 description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
                 color=0x00ff00)
-            
+
         else:
             embed = discord.Embed(
                 title='Плейлист',
@@ -300,7 +323,7 @@ async def play(ctx, *args):
         except:
             await ctx.send(embed=discord.Embed(
                 title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
-        
+
     # Основная часть запуска команды
     try:
         try:
@@ -316,13 +339,13 @@ async def play(ctx, *args):
             playlist = await create_playlist(url, ctx)
             await ctx.send(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{playlist[0]}]({playlist[1]})'), view=view)
 
-        #Если не играет музыка
+        # Если не играет музыка
         elif not vc.is_paused():
-            await create_playlist(url, ctx)
             if len(path) == 0:
-                await play_music(path.pop(0), vc, ctx)
+                await play_music(url, vc, ctx)
             else:
-                await play_music(path.pop(0), vc, ctx)
+                await create_playlist(url, ctx)
+                await play_music(url, vc, ctx)
 
     except Exception as e:
         print(f"Произошла ошибка: {e}")
@@ -335,6 +358,7 @@ async def play(ctx, *args):
 
 # Реализация команды $stop остановки плейлиста
 
+
 @bot.command(name='stop', help='Выключить воспроизведение.')
 async def stop(ctx):
     ctx.voice_client.stop()
@@ -342,21 +366,23 @@ async def stop(ctx):
 
 # Реализация команды $skip пропуска треков
 
+
 @bot.command(name='skip', help='Пропустить текущий трек.')
 async def skip(ctx):
     ctx.voice_client.stop()
+
 
 @bot.command(name='play_random', help='Сделайть плейлист рандомным ')
 async def play_random(ctx):
     # Перемешиваем список
     random.shuffle(path)
     await ctx.send(embed=discord.Embed(
-                title='Рандом', description=f'Треки перемешаны'))
+        title='Рандом', description=f'Треки перемешаны'))
 
 # Реализация команды $help
 
-@bot.command(name='help', help='Узнать команды бота')
 
+@bot.command(name='help', help='Узнать команды бота')
 async def help(ctx):
     embed = discord.Embed(
         title='Команды бота',
