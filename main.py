@@ -96,7 +96,6 @@ async def on_button_click(interaction):
 @bot.event
 async def on_ready():
     print(f'Logged on as {bot.user}!')
-
     await bot.change_presence(status=discord.Status.online, activity=discord.Game('Пытается превзойти создателя'))
 
 @bot.event
@@ -207,8 +206,102 @@ async def play(ctx, *args):
     stop_button = MyButton(label='Остановить', custom_id='stop_button', callback_function=lambda i: stop_callback(i))
     view.add_item(stop_button)
 
-    # Проверяем, находится ли автор сообщения в голосовом канале
+    # Функция парсинга треков с разных источников
+    async def create_playlist(url, ctx):
+        #Если Вк делает из него плейлист
+        if 'https://vk.com/music/' in url:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0'}
+            # Отправляем GET-запрос к указанному URL
+            response = requests.get(url, headers=headers)
 
+            if response.status_code == 200:
+                # Если запрос успешен, парсим содержимое страницы
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Найдите все элементы плейлиста
+                listen = soup.find_all("div", class_="audio_row__performer_title")
+                playlist_element = soup.find('h1', class_='AudioPlaylistSnippet__title--main')
+
+                await ctx.send(embed=discord.Embed(description=f'Начинаю парсить плейлист'))
+
+                # Ищет все треки в плейлисте
+                for item in listen:
+                    title_element = item.find("a", class_="audio_row__title_inner _audio_row__title_inner")
+                    artist_element = item.find("div", class_="audio_row__performers")
+
+                    if title_element and artist_element:
+                        title = title_element.getText()
+                        artist = artist_element.getText()
+                        path.append(f"{artist} - {title}")
+            
+                return(playlist_element.getText(),url)
+
+            else:
+                print('Ошибка в подключение к ВК')
+
+        elif 'https://open.spotify.com/playlist/' in url:
+            # Получаем информацию о плейлисте из Spotify API
+            playlist_info = sp.playlist(url)
+
+            # Перебираем треки в плейлисте и проигрываем их
+            for track in playlist_info['tracks']['items']:
+                song = track['track']['name']
+                artist = track['track']['artists'][0]['name']
+                path.append(f'{artist} - {song}')
+            return(song, artist)
+
+        else:
+            with YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
+                link = info['formats'][0]['url']
+
+                title = info['title']
+                music_url = info['webpage_url']
+                path.append(music_url)
+                return (title, music_url)
+            
+
+    # Функция воспроизведения треков
+    async def play_music(url, vc, ctx):
+        with YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
+            link = info['formats'][0]['url']
+
+        if len(path) == 0:
+            list_music = ''
+        else:
+            # Формируем информацию о текущем треке и плейлисте
+            for i in path:
+                list_music = ' '.join(f'\n- {i}' for i in path[:5])
+
+        if list_music == '':
+            embed = discord.Embed(
+                description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
+                color=0x00ff00)
+            
+        else:
+            embed = discord.Embed(
+                title='Плейлист',
+                description=f"{ctx.author.mention}, сейчас будет играть [{info['title']}]({info['webpage_url']}).\n\n**Текущий плейлист:**\n{list_music}",
+                color=0x00ff00)
+
+        await ctx.send(embed=embed, view=view)
+
+        # Воспроизводим трек
+        vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
+                source=link, **FFMPEG_OPTIONS))
+
+        # Ждем, пока текущий трек воспроизводится
+        while vc.is_playing():
+            await asyncio.sleep(1)
+
+        try:
+            await play(ctx, path.pop(0))
+        except:
+            await ctx.send(embed=discord.Embed(
+                title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
+        
+    # Основная часть запуска команды
     try:
         try:
             voice_channel = ctx.message.author.voice.channel
@@ -218,239 +311,22 @@ async def play(ctx, *args):
             print('Я уже в чате')
             pass
 
-        #Если музыка проигрывается
+        # Если музыка проигрывается
         if vc.is_playing():
-            #Если Вк делает из него плейлист
-            if 'https://vk.com/music/' in url:
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0'}
-                # Отправляем GET-запрос к указанному URL
-                response = requests.get(url, headers=headers)
-
-                if response.status_code == 200:
-                    # Если запрос успешен, парсим содержимое страницы
-                    soup = BeautifulSoup(response.text, 'html.parser')
-
-                    # Найдите все элементы плейлиста
-                    listen = soup.find_all("div", class_="audio_row__performer_title")
-
-                    await ctx.send(embed=discord.Embed(description=f'Начинаю парсить плейлист'))
-
-                    for item in listen:
-                        title_element = item.find("a", class_="audio_row__title_inner _audio_row__title_inner")
-                        artist_element = item.find("div", class_="audio_row__performers")
-
-                        if title_element and artist_element:
-                            title = title_element.getText()
-                            artist = artist_element.getText()
-                            path.append(f"{artist} - {title}")
-
-                    # Отправляем сообщение о добавлении в плейлист
-                    try:
-                        await ctx.edit(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({url})'), view=view)
-                    except:
-                        await ctx.send(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({url})'), view=view)
-                else:
-                    print(f"Ошибка {response.status_code} при получении данных.")
-                    
-            elif 'https://open.spotify.com/playlist/' in url:
-                # Получаем информацию о плейлисте из Spotify API
-                playlist_info = sp.playlist(url)
-
-                # Перебираем треки в плейлисте и проигрываем их
-                for track in playlist_info['tracks']['items']:
-                    song = track['track']['name']
-                    artist = track['track']['artists'][0]['name']
-                    path.append(f'{artist} - {song}')
-
-            #если обычная ссылка ютуб или название
-            else:
-                with YoutubeDL(YDL_OPTIONS) as ydl:
-                    info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
-                    link = info['formats'][0]['url']
-
-                    title = info['title']
-                    music_url = info['webpage_url']
-                    path.append(music_url)
-
-                    # Отправляем сообщение о добавлении в плейлист
-                    try:
-                        await ctx.edit(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({music_url})'), view=view)
-                    except:
-                        await ctx.send(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({music_url})'), view=view)
+            playlist = await create_playlist(url, ctx)
+            await ctx.send(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{playlist[0]}]({playlist[1]})'), view=view)
 
         #Если не играет музыка
         elif not vc.is_paused():
-            #Если ВК
-            if 'https://vk.com/music/' in url:
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0'}
-                # Отправляем GET-запрос к указанному URL
-                response = requests.get(url, headers=headers)
-
-                if response.status_code == 200:
-                    # Если запрос успешен, парсим содержимое страницы
-                    soup = BeautifulSoup(response.text, 'html.parser')
-
-                    # Найдите все элементы плейлиста
-                    listen = soup.find_all("div", class_="audio_row__performer_title")
-
-                    await ctx.send(embed=discord.Embed(description=f'Начинаю парсить плейлист'))
-
-                    for item in listen:
-                        title_element = item.find("a", class_="audio_row__title_inner _audio_row__title_inner")
-                        artist_element = item.find("div", class_="audio_row__performers")
-
-                        if title_element and artist_element:
-                            title = title_element.getText()
-                            artist = artist_element.getText()
-                            path.append(f"{artist} - {title}")
-
-                    with YoutubeDL(YDL_OPTIONS) as ydl:
-                        info = ydl.extract_info(f'ytsearch:{path.pop(0)}', download=False)['entries'][0]
-                        link = info['formats'][0]['url']
-
-                        # Формируем информацию о текущем треке и плейлисте
-                        for i in path:
-                            list_music = ' '.join(f'\n- {i}' for i in path[:5])
-
-                        if list_music == '':
-                            embed = discord.Embed(
-                                description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
-                                color=0x00ff00)
-
-                            try:
-                                await ctx.edit(embed=discord.Embed(description=f'{ctx.author.mention}, я добавил в плейлист \n[{title}]({music_url})'), view=view)
-                            except:
-                                await ctx.send(embed=embed, view=view)
-                        else:
-                            embed = discord.Embed(
-                                title='Плейлист',
-                                description=f"{ctx.author.mention}, сейчас будет играть [{info['title']}]({info['webpage_url']}).\n\n**Текущий плейлист:**\n{list_music}",
-                                color=0x00ff00)
-                            
-                            try:
-                                await ctx.edit(embed=embed, view=view)
-                            except:
-                                await ctx.send(embed=embed, view=view)
-
-                        # Воспроизводим трек
-                        vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
-                                source=link, **FFMPEG_OPTIONS))
-
-                        # Ждем, пока текущий трек воспроизводится
-                        while vc.is_playing():
-                            await asyncio.sleep(1)
-
-                        try:
-                            await play(ctx, path.pop(0))
-                        except:
-                            await ctx.send(embed=discord.Embed(
-                                title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'), view=view)
-                else:
-                    print(f"Ошибка {response.status_code} при получении данных.")
-
-            elif 'https://open.spotify.com/playlist/' in url:
-                # Получаем информацию о плейлисте из Spotify API
-                playlist_info = sp.playlist(url)
-
-                # Перебираем треки в плейлисте и проигрываем их
-                for track in playlist_info['tracks']['items']:
-                    song = track['track']['name']
-                    artist = track['track']['artists'][0]['name']
-                    path.append(f'{artist} - {song}')
-
-                with YoutubeDL(YDL_OPTIONS) as ydl:
-                    info = ydl.extract_info(f'ytsearch:{path.pop(0)}', download=False)['entries'][0]
-                    link = info['formats'][0]['url']
-
-                    # Формируем информацию о текущем треке и плейлисте
-                    for i in path:
-                        list_music = ' '.join(f'\n- {i}' for i in path[:5])
-
-                    if list_music == '':
-                        embed = discord.Embed(
-                            description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
-                            color=0x00ff00)
-
-                        try:
-                            await ctx.edit(embed=embed, view=view)
-                        except:
-                            await ctx.send(embed=embed, view=view)
-                    else:
-                        embed = discord.Embed(
-                            title='Плейлист',
-                            description=f"{ctx.author.mention}, сейчас будет играть [{info['title']}]({info['webpage_url']}).\n\n**Текущий плейлист:**\n{list_music}",
-                            color=0x00ff00)
-
-                        try:
-                            await ctx.edit(embed=embed, view=view)
-                        except:
-                            await ctx.send(embed=embed, view=view)
-
-                    # Воспроизводим трек
-                    vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
-                            source=link, **FFMPEG_OPTIONS))
-
-                    # Ждем, пока текущий трек воспроизводится
-                    while vc.is_playing():
-                        await asyncio.sleep(1)
-
-                    try:
-                        await play(ctx, path.pop(0))
-                    except:
-                        try:
-                            await ctx.edit(embed=discord.Embed(
-                                title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
-                        except:
-                            await ctx.send(embed=discord.Embed(
-                                title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
-
-            # Добавляем трек в плейлист
+            await create_playlist(url, ctx)
+            if len(path) == 0:
+                await play_music(path.pop(0), vc, ctx)
             else:
-                with YoutubeDL(YDL_OPTIONS) as ydl:
-                    info = ydl.extract_info(url, download=False) if 'https://' in url else ydl.extract_info(f'ytsearch:{url}', download=False)['entries'][0]
-                    link = info['formats'][0]['url']
-
-                # Формируем информацию о текущем треке и плейлисте
-                for i in path:
-                    list_music = ' '.join(f'\n- {i}' for i in path[:5])
-
-                if list_music == '':
-                    embed = discord.Embed(
-                        description=f"{ctx.author.mention}, сейчас будет играть: \n[{info['title']}]({info['webpage_url']})",
-                        color=0x00ff00)
-
-                    try:
-                        await ctx.edit(embed=embed, view=view)
-                    except:
-                        await ctx.send(embed=embed, view=view)
-                else:
-                    embed = discord.Embed(
-                        title='Плейлист',
-                        description=f"{ctx.author.mention}, сейчас будет играть [{info['title']}]({info['webpage_url']}).\n\n**Текущий плейлист:**\n{list_music}",
-                        color=0x00ff00)
-
-                    try:
-                        await message.edit(embed=embed, view=view)
-                    except:
-                        message = await ctx.send(embed=embed, view=view)
-
-                # Воспроизводим трек
-                vc.play(FFmpegPCMAudio(executable="ffmpeg\\ffmpeg.exe",
-                        source=link, **FFMPEG_OPTIONS))
-
-                # Ждем, пока текущий трек воспроизводится
-                while vc.is_playing():
-                    await asyncio.sleep(1)
-
-                try:
-                    await play(ctx, path.pop(0))
-                except:
-                    await ctx.send(embed=discord.Embed(
-                        title='Конец', description=f'{ctx.author.mention}, Треки закончились спасибо за прослушивание!'))
+                await play_music(path.pop(0), vc, ctx)
 
     except Exception as e:
         print(f"Произошла ошибка: {e}")
-        await ctx.send("Произошла ошибка при попытке воспроизведения трека.")
+        await ctx.send(f"Произошла ошибка при попытке воспроизведения трека. {e}")
         try:
             await play(ctx, path.pop(0))
         except:
